@@ -1,48 +1,30 @@
-// ESP8266 WiFi <-> UART Bridge
-// by RoboRemo
-// www.roboremo.com
+/*
+* ESP8266 WiFi <-> UART Bridge
+* by RoboRemo
+* www.roboremo.com
+* 
+
+Modified by Sylvan Morris
 
 // Disclaimer: Don't use RoboRemo for life support systems
 // or any other situations where system failure may affect
 // user or environmental safety.
-
+*/
 #include <ESP8266WiFi.h>
+#include <DNSServer.h>            //Local DNS Server used for redirecting all requests to the configuration portal
+#include <ESP8266WebServer.h>     //Local WebServer used to serve the configuration portal
+#include <WiFiManager.h>          //https://github.com/tzapu/WiFiManager WiFi Configuration Magic
 
 
 // config: ////////////////////////////////////////////////////////////
 
-#define UART_BAUD 9600
+#define UART_BAUD 115200
 #define packTimeout 5 // ms (if nothing more on UART, then send packet)
 #define bufferSize 8192
-
-//#define MODE_AP // phone connects directly to ESP
-#define MODE_STA // ESP connects to WiFi router
+#define tcpPort     80
 
 #define PROTOCOL_TCP
 //#define PROTOCOL_UDP
-
-
-#ifdef MODE_AP
-// For AP mode:
-const char *ssid = "mywifi";  // You will connect your phone to this Access Point
-const char *pw = "qwerty123"; // and this is the password
-IPAddress ip(192, 168, 0, 1); // From RoboRemo app, connect to this IP
-IPAddress netmask(255, 255, 255, 0);
-const int port = 9876; // and this port
-// You must connect the phone to this AP, then:
-// menu -> connect -> Internet(TCP) -> 192.168.0.1:9876
-#endif
-
-
-#ifdef MODE_STA
-// For STATION mode:
-const char *ssid = "myrouter";  // Your ROUTER SSID
-const char *pw = "password"; // and WiFi PASSWORD
-const int port = 9876;
-// You must connect the phone to the same router,
-// Then somehow find the IP that the ESP got from router, then:
-// menu -> connect -> Internet(TCP) -> [ESP_IP]:9876
-#endif
 
 //////////////////////////////////////////////////////////////////////////
 
@@ -51,7 +33,7 @@ const int port = 9876;
 
 #ifdef PROTOCOL_TCP
 #include <WiFiClient.h>
-WiFiServer server(port);
+WiFiServer server(tcpPort);
 WiFiClient client;
 #endif
 
@@ -73,27 +55,14 @@ uint8_t i2=0;
 void setup() {
 
   delay(500);
+
+  WiFiManager wifiManager;
   
   Serial.begin(UART_BAUD);
 
-  #ifdef MODE_AP 
-  //AP mode (phone connects directly to ESP) (no router)
-  WiFi.mode(WIFI_AP);
-  WiFi.softAPConfig(ip, ip, netmask); // configure ip address for softAP 
-  WiFi.softAP(ssid, pw); // configure ssid and password for softAP
-  #endif
+  wifiManager.autoConnect("ESP-OTA");
 
-  
-  #ifdef MODE_STA
-  // STATION mode (ESP connects to router and gets an IP)
-  // Assuming phone is also connected to that router
-  // from RoboRemo you must connect to the IP of the ESP
-  WiFi.mode(WIFI_STA);
-  WiFi.begin(ssid, pw);
-  while (WiFi.status() != WL_CONNECTED) {
-    delay(100);
-  }
-  #endif
+  GetExternalIP();
 
   #ifdef PROTOCOL_TCP
   Serial.println("Starting TCP Server");
@@ -194,4 +163,30 @@ void loop() {
   #endif
   
   
+}
+
+void GetExternalIP()
+{
+  WiFiClient client;
+  if (!client.connect("api.ipify.org", 80)) {
+    Serial.println("Failed to connect with 'api.ipify.org' !");
+  }
+  else {
+    int timeout = millis() + 5000;
+    client.print("GET /?format=json HTTP/1.1\r\nHost: api.ipify.org\r\n\r\n");
+    while (client.available() == 0) {
+      if (timeout - millis() < 0) {
+        Serial.println(">>> Client Timeout !");
+        client.stop();
+        return;
+      }
+    }
+    int size;
+    while ((size = client.available()) > 0) {
+      uint8_t* msg = (uint8_t*)malloc(size);
+      size = client.read(msg, size);
+      Serial.write(msg, size);
+      free(msg);
+    }
+  }
 }
