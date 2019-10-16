@@ -23,6 +23,8 @@ Modified by Sylvan Morris
 #define bufferSize 8192
 #define tcpPort     80
 
+#define microResetPin 12
+
 #define PROTOCOL_TCP
 //#define PROTOCOL_UDP
 
@@ -73,11 +75,21 @@ void setup() {
   Serial.println("Starting UDP Server");
   udp.begin(port); // start UDP server 
   #endif
+
+  /* MCLR pin for the micro */
+  pinMode(microResetPin, OUTPUT);
+  digitalWrite(microResetPin, HIGH);
 }
 
 
-void loop() {
+void loop() 
 
+{
+  Bootload();
+}
+
+void Bootload()
+{
   #ifdef PROTOCOL_TCP
   if(!client.connected()) { // if client not connected
     client = server.available(); // wait for it to connect
@@ -162,7 +174,32 @@ void loop() {
     
   #endif
   
-  
+}
+
+void CheckForNewFirmware()
+{
+  WiFiClient client;
+  if (!client.connect("api.ipify.org", 80)) {
+    Serial.println("Failed to connect with 'api.ipify.org' !");
+  }
+  else {
+    int timeout = millis() + 5000;
+    client.print("GET /?format=json HTTP/1.1\r\nHost: api.ipify.org\r\n\r\n");
+    while (client.available() == 0) {
+      if (timeout - millis() < 0) {
+        Serial.println(">>> Client Timeout !");
+        client.stop();
+        return;
+      }
+    }
+    int size;
+    while ((size = client.available()) > 0) {
+      uint8_t* msg = (uint8_t*)malloc(size);
+      size = client.read(msg, size);
+      Serial.write(msg, size);
+      free(msg);
+    }
+  }
 }
 
 void GetExternalIP()
@@ -189,4 +226,11 @@ void GetExternalIP()
       free(msg);
     }
   }
+}
+
+void ResetMicro()
+{
+  digitalWrite(microResetPin, LOW);
+  delay(1);
+  digitalWrite(microResetPin, HIGH);
 }
